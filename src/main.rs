@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs, io::Cursor};
 
 use askama::*;
-use typst2pdf::rendering::typst2pdf;
+use typst2pdf::typst2pdf;
 
 #[derive(Template)]
 #[template(path = "main.typ", escape = "none")]
@@ -14,16 +14,9 @@ fn main() {
         input: "HOWYDDDDD".to_string(),
     };
 
-    let helper_filename = "helpers.typ";
-    let helper = r#"#let variable = "I WIN" "#;
-
-    dbg!(&content.to_string());
-
     let mut files = HashMap::<String, &[u8]>::new();
     let content = content.to_string();
-    let helper = helper.to_string();
     files.insert("main.typ".to_string(), content.as_bytes());
-    files.insert(helper_filename.to_string(), helper.as_bytes());
 
     files.insert(
         "mLogo.jpeg".to_string(),
