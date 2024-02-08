@@ -7,12 +7,12 @@ edition = "2021"
 
 [dependencies]
 
-typst = { git = "https://github.com/typst/typst.git", tag = "v0.10.0" }
+typst = { git = "https://github.com/raulescobar-g/typst.git", tag = "v0.10.0" }
 comemo = "0.3"
 
 # typst rendering (for demonstration purpose)
-typst-pdf = { git = "https://github.com/typst/typst.git", tag = "v0.10.0" }
-typst-svg = { git = "https://github.com/typst/typst.git", tag = "v0.10.0" }
+typst-pdf = { git = "https://github.com/raulescobar-g/typst.git", tag = "v0.10.0" }
+typst-svg = { git = "https://github.com/raulescobar-g/typst.git", tag = "v0.10.0" }
 
 # utils
 time = "0.3"
