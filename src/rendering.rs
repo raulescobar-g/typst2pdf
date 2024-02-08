@@ -1,17 +1,19 @@
 use std::cell::{RefCell, RefMut};
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use comemo::Prehashed;
-use typst::diag::{eco_format, FileError, FileResult, PackageError, PackageResult};
+use typst::diag::FileResult;
 use typst::eval::Tracer;
 use typst::foundations::{Bytes, Datetime};
-use typst::syntax::{FileId, PackageSpec, Source, VirtualPath};
+use typst::syntax::{FileId, Source, VirtualPath};
 use typst::text::{Font, FontBook};
 use typst::Library;
 
-pub fn typst2pdf(files: HashMap<String, String>) -> Vec<u8> {
-    let world = WorldWrapper::new(files);
+pub fn typst2pdf<'a>(
+    files: impl IntoIterator<Item = (String, String)>,
+    fonts: impl IntoIterator<Item = &'a [u8]>,
+) -> Vec<u8> {
+    let world = WorldWrapper::new(files, fonts);
     let mut tracer = Tracer::default();
     let document = typst::compile(&world, &mut tracer).expect("Error compiling typst.");
     return typst_pdf::pdf(&document, None, None);
@@ -19,8 +21,6 @@ pub fn typst2pdf(files: HashMap<String, String>) -> Vec<u8> {
 
 /// Main interface that determines the environment for Typst.
 struct WorldWrapper {
-    /// Root path to which files will be resolved.
-    root: PathBuf,
     /// The content of a source.
     source: Source,
     /// The standard library.
@@ -31,51 +31,42 @@ struct WorldWrapper {
     fonts: Vec<Font>,
     /// Map of all known files.
     files: RefCell<HashMap<FileId, FileEntry>>,
-    // Cache directory (e.g. where packages are downloaded to).
-    //cache_directory: PathBuf,
-    // http agent to download packages.
-    //http: ureq::Agent,
     /// Datetime.
     time: time::OffsetDateTime,
 }
 
 impl WorldWrapper {
-    pub fn new(source: HashMap<String, String>) -> Self {
-        let fonts = fonts();
-        let file_entries = source.iter().map(|(fname, cont)| {
-            let id = FileId::new(None, VirtualPath::new(fname.to_owned()));
-
-            (id, FileEntry::new(Source::new(id, cont.to_owned())))
-        });
-
+    pub fn new<'a>(
+        source_iter: impl IntoIterator<Item = (String, String)>,
+        fonts: impl IntoIterator<Item = &'a [u8]>,
+    ) -> Self {
+        let fonts = read_fonts(fonts);
         let mut files = HashMap::new();
+        let mut source: Option<Source> = None;
 
-        file_entries.for_each(|(id, entry)| {
+        source_iter.into_iter().for_each(|(fname, cont)| {
+            let id = FileId::new(None, VirtualPath::new(fname.to_owned()));
+            let entry = FileEntry::new(Source::new(id, cont.to_owned()));
+
+            if id == FileId::new(None, VirtualPath::new("./main.typ")) {
+                source = Some(entry.source.clone());
+            }
             files.insert(id, entry);
         });
 
         if fonts.len() == 0 {
             panic!("Fontless");
         }
-
-        let source = source.get("main.typ");
         if source.is_none() {
             panic!("Mainless");
         }
 
-        let id = FileId::new(None, VirtualPath::new("/main.typ"));
-
         Self {
             library: Prehashed::new(Library::build()),
             book: Prehashed::new(FontBook::from_fonts(&fonts)),
-            root: PathBuf::from("./"),
             fonts,
-            source: Source::new(id, source.unwrap().to_owned()),
+            source: source.unwrap(),
             time: time::OffsetDateTime::now_utc(),
-            //cache_directory: std::env::var_os("CACHE_DIRECTORY")
-            //    .map(|os_path| os_path.into())
-            //    .unwrap_or(std::env::temp_dir()),
-            //http: ureq::Agent::new(),
             files: RefCell::new(files),
         }
     }
@@ -103,11 +94,6 @@ impl WorldWrapper {
         } else {
             panic!("what")
         }
-    }
-
-    /// Downloads the package and returns the system path of the unpacked package.
-    fn download_package(&self, package: &PackageSpec) -> PackageResult<PathBuf> {
-        unimplemented!()
     }
 }
 
@@ -151,19 +137,15 @@ impl typst::World for WorldWrapper {
     }
 }
 
-fn fonts() -> Vec<Font> {
-    std::fs::read_dir("fonts")
-        .unwrap()
-        .map(Result::unwrap)
-        .flat_map(|entry| {
-            let path = entry.path();
-            let bytes = std::fs::read(&path).unwrap();
+fn read_fonts<'a>(fonts: impl IntoIterator<Item = &'a [u8]>) -> Vec<Font> {
+    fonts
+        .into_iter()
+        .flat_map(|bytes| {
             let buffer = Bytes::from(bytes);
             let face_count = ttf_parser::fonts_in_collection(&buffer).unwrap_or(1);
             (0..face_count).map(move |face| {
-                Font::new(buffer.clone(), face).unwrap_or_else(|| {
-                    panic!("failed to load font from {path:?} (face index {face})")
-                })
+                Font::new(buffer.clone(), face)
+                    .unwrap_or_else(|| panic!("failed to load font (face index {face})"))
             })
         })
         .collect()

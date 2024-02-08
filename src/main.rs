@@ -23,7 +23,9 @@ fn main() {
     files.insert("main.typ".to_string(), content.to_string());
     files.insert(helper_filename.to_string(), helper.to_string());
 
-    let pdf = typst2pdf(files);
+    let fonts: Vec<&[u8]> = vec![include_bytes!("../fonts/InterVariable.ttf")];
+
+    let pdf = typst2pdf(files, fonts);
     // Create world with content.
     fs::write("./output.pdf", pdf).expect("Error writing PDF.");
     println!("Created pdf: `./output.pdf`");
