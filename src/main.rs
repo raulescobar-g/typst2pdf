@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs};
+use std::{collections::HashMap, fs, io::Cursor};
 
 use askama::*;
 use typst2pdf::rendering::typst2pdf;
@@ -19,9 +19,16 @@ fn main() {
 
     dbg!(&content.to_string());
 
-    let mut files = HashMap::<String, String>::new();
-    files.insert("main.typ".to_string(), content.to_string());
-    files.insert(helper_filename.to_string(), helper.to_string());
+    let mut files = HashMap::<String, &[u8]>::new();
+    let content = content.to_string();
+    let helper = helper.to_string();
+    files.insert("main.typ".to_string(), content.as_bytes());
+    files.insert(helper_filename.to_string(), helper.as_bytes());
+
+    files.insert(
+        "mLogo.jpeg".to_string(),
+        include_bytes!("../templates/mLogo.jpeg"),
+    );
 
     let fonts: Vec<&[u8]> = vec![include_bytes!("../fonts/InterVariable.ttf")];
 

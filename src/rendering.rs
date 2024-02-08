@@ -1,5 +1,6 @@
 use std::cell::{RefCell, RefMut};
 use std::collections::HashMap;
+use std::io;
 
 use comemo::Prehashed;
 use typst::diag::FileResult;
@@ -9,8 +10,13 @@ use typst::syntax::{FileId, Source, VirtualPath};
 use typst::text::{Font, FontBook};
 use typst::Library;
 
-pub fn typst2pdf<'a>(
-    files: impl IntoIterator<Item = (String, String)>,
+/// only interface
+/// takes in string tuple of (filename, content)
+/// also takes in the fonts to be used in the files
+/// meant to be for very simple files
+/// no external package import support yet
+pub fn typst2pdf<'a, 'b>(
+    files: impl IntoIterator<Item = (String, &'b [u8])>,
     fonts: impl IntoIterator<Item = &'a [u8]>,
 ) -> Vec<u8> {
     let world = WorldWrapper::new(files, fonts);
@@ -35,21 +41,36 @@ struct WorldWrapper {
     time: time::OffsetDateTime,
 }
 
+#[derive(Clone)]
+struct FileEntry {
+    source: Option<Source>,
+    bytes: Bytes,
+}
+
 impl WorldWrapper {
-    pub fn new<'a>(
-        source_iter: impl IntoIterator<Item = (String, String)>,
+    pub fn new<'a, 'b>(
+        source_iter: impl IntoIterator<Item = (String, &'b [u8])>,
         fonts: impl IntoIterator<Item = &'a [u8]>,
     ) -> Self {
         let fonts = read_fonts(fonts);
         let mut files = HashMap::new();
-        let mut source: Option<Source> = None;
+        let mut main: Option<Source> = None;
 
         source_iter.into_iter().for_each(|(fname, cont)| {
             let id = FileId::new(None, VirtualPath::new(fname.to_owned()));
-            let entry = FileEntry::new(Source::new(id, cont.to_owned()));
+            let bytes = Bytes::from(cont);
+            let source = match std::str::from_utf8(cont) {
+                Ok(content) => Some(Source::new(id, content.to_owned())),
+                Err(_) => None,
+            };
+
+            let entry = FileEntry {
+                source: source.to_owned(),
+                bytes,
+            };
 
             if id == FileId::new(None, VirtualPath::new("./main.typ")) {
-                source = Some(entry.source.clone());
+                main = source.to_owned();
             }
             files.insert(id, entry);
         });
@@ -57,7 +78,7 @@ impl WorldWrapper {
         if fonts.len() == 0 {
             panic!("Fontless");
         }
-        if source.is_none() {
+        if main.is_none() {
             panic!("Mainless");
         }
 
@@ -65,22 +86,10 @@ impl WorldWrapper {
             library: Prehashed::new(Library::build()),
             book: Prehashed::new(FontBook::from_fonts(&fonts)),
             fonts,
-            source: source.unwrap(),
+            source: main.unwrap(),
             time: time::OffsetDateTime::now_utc(),
             files: RefCell::new(files),
         }
-    }
-}
-
-/// A File that will be stored in the HashMap.
-#[derive(Clone, Debug)]
-struct FileEntry {
-    source: Source,
-}
-
-impl FileEntry {
-    fn new(source: Source) -> Self {
-        Self { source }
     }
 }
 
@@ -92,7 +101,7 @@ impl WorldWrapper {
         if let Ok(entry) = RefMut::filter_map(self.files.borrow_mut(), |files| files.get_mut(&id)) {
             return Ok(entry);
         } else {
-            panic!("what")
+            panic!("File missing: {:?}", id)
         }
     }
 }
@@ -115,13 +124,12 @@ impl typst::World for WorldWrapper {
 
     /// Accessing a specified source file (based on `FileId`).
     fn source(&self, id: FileId) -> FileResult<Source> {
-        Ok(self.file(id)?.source.clone())
+        Ok(self.file(id)?.source.to_owned().unwrap())
     }
 
     /// Accessing a specified file (non-file).
     fn file(&self, id: FileId) -> FileResult<Bytes> {
-        self.file(id)
-            .map(|file| Bytes::from(file.source.text().as_bytes()))
+        self.file(id).map(|file| file.bytes.clone())
     }
 
     /// Accessing a specified font per index of font book.
